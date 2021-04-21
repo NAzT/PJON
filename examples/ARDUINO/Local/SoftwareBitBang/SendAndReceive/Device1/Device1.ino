@@ -1,7 +1,14 @@
-#include <PJON.h>
 
-// <Strategy name> bus(selected device id)
-PJON<SoftwareBitBang> bus(44);
+// Uncomment to use the mode you prefer (default SWBB_MODE 1)
+// #define SWBB_MODE 1 // 1.95kB/s - 15625Bd
+// #define SWBB_MODE 2 // 2.21kB/s - 17696Bd
+// #define SWBB_MODE 3 // 2.94kB/s - 23529Bd
+// #define SWBB_MODE 4 // 3.40kB/s - 27210Bd
+
+#include <PJONSoftwareBitBang.h>
+
+
+PJONSoftwareBitBang bus(44);
 
 void receiver_function(uint8_t *payload, uint16_t length, const PJON_Packet_Info &packet_info) {
   /* Make use of the payload before sending something, the buffer where payload points to is
@@ -14,19 +21,6 @@ void receiver_function(uint8_t *payload, uint16_t length, const PJON_Packet_Info
     digitalWrite(LED_BUILTIN, LOW);
     delay(5);
   }
-};
-
-void setup() {
-  Serial.begin(115200);
-
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW); // Initialize LED 13 to be off
-
-  bus.set_error(error_handler);
-  bus.set_receiver(receiver_function);
-  bus.strategy.set_pin(12);
-  bus.begin();
-  bus.send(45, "B", 1);
 };
 
 void error_handler(uint8_t code, uint16_t data, void *custom_pointer) {
@@ -45,6 +39,19 @@ void error_handler(uint8_t code, uint16_t data, void *custom_pointer) {
     Serial.print("Content is too long, length: ");
     Serial.println(data);
   }
+};
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW); // Initialize LED 13 to be off
+
+  bus.set_error(error_handler);
+  bus.set_receiver(receiver_function);
+  bus.strategy.set_pin(12);
+  bus.begin();
+  bus.send(45, "B", 1);
 };
 
 void loop() {

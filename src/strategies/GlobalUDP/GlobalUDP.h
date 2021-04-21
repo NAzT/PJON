@@ -38,6 +38,11 @@
   #define GUDP_MAX_REMOTE_NODES               10
 #endif
 
+// Recommended receive time for this strategy, in microseconds
+#ifndef GUDP_RECEIVE_TIME
+  #define GUDP_RECEIVE_TIME 0
+#endif
+
 #define GUDP_DEFAULT_PORT                    7000
 #define GUDP_MAGIC_HEADER   (uint32_t) 0x0DFAC3FF
 
@@ -75,7 +80,7 @@ class GlobalUDP {
         // First get PJON sender id from incoming packet
         PJON_Packet_Info packet_info;
         PJONTools::parse_header(message, packet_info);
-        uint8_t sender_id = packet_info.sender_id;
+        uint8_t sender_id = packet_info.tx.id;
         if (sender_id == 0) return; // If parsing fails, it will be 0
 
         // Then get the IP address and port number of the sender
@@ -134,20 +139,25 @@ public:
     };
 
 
-    /* Begin method, to be called before transmission or reception:
+    /* Begin method, to be called on initialization:
        (returns always true) */
 
-    bool begin(uint8_t /*additional_randomness*/ = 0) { return check_udp(); };
+    bool begin(uint8_t /*did*/ = 0) { return check_udp(); };
 
 
     /* Check if the channel is free for transmission */
 
     bool can_start() { return check_udp(); };
-
+    
 
     /* Returns the maximum number of attempts for each transmission: */
 
     static uint8_t get_max_attempts() { return 10; };
+
+
+    /* Returns the recommended receive time for this strategy: */
+
+    static uint16_t get_receive_time() { return GUDP_RECEIVE_TIME; };
 
 
     /* Handle a collision (empty because handled on Ethernet level): */
@@ -155,11 +165,11 @@ public:
     void handle_collision() { };
 
 
-    /* Receive a string: */
+    /* Receive a frame: */
 
-    uint16_t receive_string(uint8_t *string, uint16_t max_length) {
-      uint16_t length = udp.receive_string(string, max_length);
-      if (length != PJON_FAIL) autoregister_sender(string, length);
+    uint16_t receive_frame(uint8_t *data, uint16_t max_length) {
+      uint16_t length = udp.receive_frame(data, max_length);
+      if (length != PJON_FAIL) autoregister_sender(data, length);
       return length;
     }
 
@@ -174,7 +184,7 @@ public:
       uint8_t result[8];
       uint16_t reply_length = 0;
       do {
-        reply_length = receive_string(result, sizeof result);
+        reply_length = receive_frame(result, sizeof result);
 
         // We expect 1, if packet is larger it is not our ACK
         if(reply_length == 1)
@@ -194,18 +204,18 @@ public:
     };
 
 
-    /* Send a string: */
+    /* Send a frame: */
 
-    void send_string(uint8_t *string, uint16_t length) {
+    void send_frame(uint8_t *data, uint16_t length) {
       if(length > 0) {
-        uint8_t id = string[0]; // Package always starts with a receiver id
+        uint8_t id = data[0]; // Package always starts with a receiver id
         if (id == 0) { // Broadcast, send to all receivers
           for(uint8_t pos = 0; pos < _remote_node_count; pos++)
-            udp.send_string(string, length, _remote_ip[pos], _remote_port[pos]);
+            udp.send_frame(data, length, _remote_ip[pos], _remote_port[pos]);
         } else { // To a specific receiver
           int16_t pos = find_remote_node(id);
           if (pos != -1) {
-            udp.send_string(string, length, _remote_ip[pos], _remote_port[pos]);
+            udp.send_frame(data, length, _remote_ip[pos], _remote_port[pos]);
           }
         }
       }

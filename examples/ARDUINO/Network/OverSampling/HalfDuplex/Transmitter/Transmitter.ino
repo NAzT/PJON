@@ -1,13 +1,10 @@
 
-/* Include Async ACK code setting PJON_INCLUDE_ASYNC_ACK as true before including PJON.h */
-#define PJON_INCLUDE_ASYNC_ACK true
-
-#include <PJON.h>
+#include <PJONOverSampling.h>
 uint16_t packet;
 uint8_t bus_id[] = {0, 0, 0, 1};
 
-// <Strategy name> bus(selected device id)
-PJON<OverSampling> bus(bus_id, 45);
+
+PJONOverSampling bus(bus_id, 45);
 
 void error_handler(uint8_t code, uint16_t data, void *custom_pointer) {
   if(code == PJON_CONNECTION_LOST) {
@@ -37,12 +34,6 @@ void setup() {
   /* When using more than one pin always use pins connected to
      a different port group to avoid cross-talk. */
   bus.strategy.set_pins(7, 12);
-
-  /* A packet containing the id of every packet received will be sent back
-     by this device to the packet's sender to acknowledge packet reception.
-     (With this setup you can avoid sending packet duplicates) */
-  bus.set_asynchronous_acknowledge(true);
-  bus.set_synchronous_acknowledge(false);
   bus.set_error(error_handler);
   bus.begin();
 

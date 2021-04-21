@@ -1,15 +1,10 @@
 
-#define OS_PREAMBLE_PULSE_WIDTH 0
-/* If only one pair of SRX and STX are used to connect 2 devices in SIMPLEX
-   mode, being communication mono-directional, there is no need to include
-   the preamble pulse. */
+#include <PJONOverSampling.h>
 
-#include <PJON.h>
 
-// <Strategy name> bus(selected device id)
-PJON<OverSampling> bus(45);
+PJONOverSampling bus(45);
 
-char content[] = "01234567890123456789";
+uint8_t content[] = "01234567890123456789";
 
 void setup() {
   // Connect STX882 data output pin in Arduino pin 7

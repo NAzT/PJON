@@ -1,15 +1,13 @@
 ### Specifications index
 
 #### Network layer
-- [PJON (Padded Jittering Operative Network) v3.1](/specification/PJON-protocol-specification-v3.1.md)
-- [Acknowledge specification v1.0](/specification/PJON-protocol-acknowledge-specification-v1.0.md)
-- [Dynamic addressing specification v2.0](/specification/PJON-dynamic-addressing-specification-v2.0.md)
+- [PJON (Padded Jittering Operative Network) v4.0](/specification/PJON-protocol-specification-v4.0.md)
 - [Network services list](/specification/PJON-network-services-list.md)
 #### Data link layer
-- [PJDL (Padded Jittering Data Link) v3.0](/src/strategies/SoftwareBitBang/specification/PJDL-specification-v3.0.md)
-- [PJDLR (Padded Jittering Data Link over Radio) v2.0](/src/strategies/OverSampling/specification/PJDLR-specification-v2.0.md)
+- [PJDL (Padded Jittering Data Link) v5.0](/src/strategies/SoftwareBitBang/specification/PJDL-specification-v5.0.md)
+- [PJDLR (Padded Jittering Data Link over Radio) v3.0](/src/strategies/OverSampling/specification/PJDLR-specification-v3.0.md)
 - **[PJDLS (Padded Jittering Data Link byte Stuffed) v2.0](/src/strategies/AnalogSampling/specification/PJDLS-specification-v2.0.md)**
-- [TSDL (Tardy Serial Data Link) v2.1](/src/strategies/ThroughSerial/specification/TSDL-specification-v2.1.md)
+- [TSDL (Tardy Serial Data Link) v3.0](/src/strategies/ThroughSerial/specification/TSDL-specification-v3.0.md)
 - [SFSP (Secure Frame Separation Protocol) v1.0](/specification/SFSP-frame-separation-specification-v1.0.md)
 
 ---
@@ -17,7 +15,8 @@
 ## PJDLS v2.0
 ```
 Invented by Giovanni Blu Mitolo
-Originally published: 20/11/2017, latest revision: 31/10/2018
+Originally published: 20/11/2017
+Latest revision: 31/10/2018
 Related implementation: /src/strategies/AnalogSampling/
 Compliant versions: PJON v10.0 and following
 Released into the public domain
@@ -45,7 +44,7 @@ PJDLS specifies a variation of the carrier-sense, non-persistent random multiple
 Byte transmission is composed by 10 bits, the first two are called synchronization pad and are used to obtain sampling synchronization. The synchronization pad is composed by a logic 1 padding bit longer than data bits and a logic 0 data bit. The following 8 data bits contain information in LSB-first (least significant bit first) order.
 
 The reception technique is based on 3 steps:
-1. Find a logic 1 which duration is equal or acceptably shorter than the expected padding bit duration
+1. Find a high bit which duration is equal to or acceptably shorter than a high padding bit
 2. Synchronize to its falling edge
 3. Ensure it is followed by a logic 0 data bit
 

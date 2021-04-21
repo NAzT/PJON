@@ -1,10 +1,12 @@
 ## AnalogSampling
 
-**Medium**: light pulses over air or optic-fibre | **Pins used**: 1 or 2
+| Medium | Pins used | Inclusion |
+|--------|-----------|--------------------|
+| Light pulses over air or optic-fibre | 1 or 2 | `#include <PJONAnalogSampling.h>`|
 
-`AnalogSampling` strategy or data link complies with [PJDLS v2.0](/src/strategies/AnalogSampling/specification/PJDLS-specification-v2.0.md), it is designed to communicate data wirelessly using light impulses and its sampling technique is based on analog readings. This strategy is able to use a single LED for both photo-emission and photo-reception phases providing with wireless half-duplex connectivity between devices with a range of up to 5 meters. Most appliances have at least a useless energy consuming LED on board, right?
+The `AnalogSampling` strategy is a software implementation of [PJDLS](/src/strategies/AnalogSampling/specification/PJDLS-specification-v2.0.md), it is designed to communicate data wirelessly using light impulses and its sampling technique is based on analog readings. This strategy is able to use a single LED for both photo-emission and photo-reception phases providing with wireless half-duplex connectivity between devices with a range of up to 5 meters. Most appliances have at least a useless energy consuming LED on board, right? Thanks to this strategy that can be used for communication.
 
-`AnalogSampling` can also be used with separate emitter and receiver pins enabling cheap long range wireless communication using standard photo-diodes, light-emitting diodes or laser diodes. The proposed circuit, technique and codebase were originally implemented in the far 2011, see the first [video documented experiment](https://www.youtube.com/watch?v=-Ul2j6ixbmE). Take a look at the [video introduction](https://www.youtube.com/watch?v=yIncPe8OPpg) for a brief showcase of its features.
+`AnalogSampling` can also be used with separate emitter and receiver pins enabling cheap long range wireless or optic-fibre communication using standard photo-diodes, light-emitting diodes or laser diodes. The proposed circuit, technique and codebase were originally implemented in 2011, see the first [video documented experiment](https://www.youtube.com/watch?v=-Ul2j6ixbmE). Take a look at the [video introduction](https://www.youtube.com/watch?v=1BeGYMjg-DI) for a brief showcase of its features.
 
 ### Compatibility
 | MCU              | Clock | Supported pins   | Supported modes |
@@ -20,7 +22,7 @@
 - `4` runs at 5547Bb or 639B/s (`AS_PRESCALE` 16)
 - `5` runs at 12658Bd or 1528B/s (`AS_PRESCALE` 8)
 
-Caution, mode `5` sets ADC clock prescale to a higher rate than manufacturer recommends as maximum ADC sample rate (prescale 16).
+Caution, mode `5` sets the ADC clock prescale to a higher rate than the manufacturer recommends as maximum ADC sample rate (prescale 16).
 
 ### What can be done?
 The most basic example is to connect two devices using a couple of visible light LEDs used as wireless transceivers.
@@ -36,7 +38,7 @@ It is possible to use LEDs as wireless (bidirectional) transceivers. This means 
 `AnalogSampling` can be used to experiment with short range infrared or visible light communication (remote control, robot swarms, data streaming using lighting), medium range using light sources (cars transmitting data through front and backlights) or long range laser communication (data between ground and LEO).  
 
 ### Configuration
-Before including `PJON.h` it is possible to configure `AnalogSampling` using predefined constants:
+Before including the library it is possible to configure `AnalogSampling` using predefined constants:
 
 | Constant                  | Purpose                             | Supported value                            |
 | ------------------------- |------------------------------------ | ------------------------------------------ |
@@ -46,11 +48,11 @@ Before including `PJON.h` it is possible to configure `AnalogSampling` using pre
 | `AS_MAX_ATTEMPTS`         | Maximum transmission attempts       | Numeric value (10 by default)              |
 | `AS_PRESCALE`             | Set ADC pre-scaler                  | 8, 16, 32                                  |
 
-Pass the `AnalogSampling` type as PJON template parameter to instantiate a PJON object ready to communicate through this Strategy. All the other necessary information is present in the general [Documentation](/documentation).
+Use `PJONAnalogSampling` to instantiate a PJON object ready to communicate using `AnalogSampling` strategy. All the other necessary information is present in the general [Documentation](/documentation).
 ```cpp  
-#include <PJON.h>
+#include <PJONAnalogSampling.h>
 
-PJON<AnalogSampling> bus;
+PJONAnalogSampling bus;
 
 void setup() {
   // Set the pin A0 as the communication pin

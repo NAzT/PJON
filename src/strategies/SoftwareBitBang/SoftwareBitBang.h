@@ -1,11 +1,11 @@
 
 /* SoftwareBitBang
-   1 or 2 wires software emulated asynchronous serial data link layer
+   1 or 2 wires software-defined asynchronous serial data link layer
    used as a Strategy by PJON (included in version v3.0)
-   Compliant with PJDL (Padded Jittering Data Link) specification v2.0
+   Compliant with PJDL (Padded Jittering Data Link) specification v5.0
    ___________________________________________________________________________
 
-    Copyright 2010-2019 Giovanni Blu Mitolo gioscarab@gmail.com
+    Copyright 2010-2021 Giovanni Blu Mitolo gioscarab@gmail.com
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -28,15 +28,20 @@
 
 // Used to signal communication failure
 #define SWBB_FAIL       65535
-
 // Used for pin handling
 #define SWBB_NOT_ASSIGNED 255
 
 /* Transmission speed modes (see Timing.h)
-   MODE   1: 1.95kB/s - 15625Bd
-   MODE   2: 2.21kB/s - 17696Bd
-   MODE   3: 2.94kB/s - 23529Bd */
+  MODE   1: 1.97kB/s - 15808Bd
+  MODE   2: 2.21kB/s - 17696Bd
+  MODE   3: 3.10kB/s - 24844Bd
+  MODE   4: 3.34kB/s - 26755Bd */
 #include "Timing.h"
+
+// Recommended receive time for this strategy, in microseconds
+#ifndef SWBB_RECEIVE_TIME
+  #define SWBB_RECEIVE_TIME 1000
+#endif
 
 class SoftwareBitBang {
   public:
@@ -50,11 +55,11 @@ class SoftwareBitBang {
     };
 
 
-    /* Begin method, to be called before transmission or reception:
+    /* Begin method, to be called on initialization:
        (returns always true) */
 
-    bool begin(uint8_t additional_randomness = 0) {
-      PJON_DELAY(PJON_RANDOM(SWBB_INITIAL_DELAY) + additional_randomness);
+    bool begin(uint8_t did = 0) {
+      PJON_DELAY(PJON_RANDOM(SWBB_INITIAL_DELAY) + did);
       return true;
     };
 
@@ -64,6 +69,7 @@ class SoftwareBitBang {
 
     bool can_start() {
       PJON_IO_MODE(_input_pin, INPUT);
+      // Look for ongoing transmission for 1 padding bit + 9 data bits
       PJON_DELAY_MICROSECONDS(SWBB_BIT_SPACER / 2);
       if(PJON_IO_READ(_input_pin)) return false;
       PJON_DELAY_MICROSECONDS((SWBB_BIT_SPACER / 2));
@@ -75,6 +81,10 @@ class SoftwareBitBang {
         PJON_DELAY_MICROSECONDS(SWBB_BIT_WIDTH);
       }
       if(PJON_IO_READ(_input_pin)) return false;
+      // Delay for the maximum expected latency and then check again
+      PJON_DELAY_MICROSECONDS(SWBB_LATENCY);
+      if(PJON_IO_READ(_input_pin)) return false;
+      // Delay for a small random time and then check again
       PJON_DELAY_MICROSECONDS(PJON_RANDOM(SWBB_COLLISION_DELAY));
       if(PJON_IO_READ(_input_pin)) return false;
       return true;
@@ -85,6 +95,13 @@ class SoftwareBitBang {
 
     static uint8_t get_max_attempts() {
       return SWBB_MAX_ATTEMPTS;
+    };
+
+
+    /* Returns the recommended receive time for this strategy: */
+
+    static uint16_t get_receive_time() {
+      return SWBB_RECEIVE_TIME;
     };
 
 
@@ -134,41 +151,37 @@ class SoftwareBitBang {
         PJON_IO_WRITE(_output_pin, LOW);
       uint16_t response = SWBB_FAIL;
       uint32_t time = PJON_MICROS();
-      while(
-        response == SWBB_FAIL &&
-        (uint32_t)(PJON_MICROS() - SWBB_RESPONSE_TIMEOUT) <= time
-      ) {
+      while((uint32_t)(PJON_MICROS() - time) < _timeout) {
         PJON_IO_WRITE(_input_pin, LOW);
-        response = receive_byte();
+        if(sync()) response = receive_byte();
         if(response == SWBB_FAIL) {
           PJON_IO_MODE(_output_pin, OUTPUT);
           PJON_IO_WRITE(_output_pin, HIGH);
           PJON_DELAY_MICROSECONDS(SWBB_BIT_WIDTH / 4);
           PJON_IO_PULL_DOWN(_output_pin);
-        }
+        } else return response;
       }
       return response;
     };
 
 
-    /* Receive a string: */
+    /* Receive a frame: */
 
-    uint16_t receive_string(uint8_t *string, uint16_t max_length) {
+    uint16_t receive_frame(uint8_t *data, uint16_t max_length) {
       uint16_t result;
       if(max_length == PJON_PACKET_MAX_LENGTH) {
         uint32_t time = PJON_MICROS();
         // Look for a frame initializer
-        if(!sync() || !sync() || !sync()) return SWBB_FAIL;
+        if(!sync_preamble() || !sync() || !sync()) return SWBB_FAIL;
         // Check its timing consistency
         if(
           (uint32_t)(PJON_MICROS() - time) <
           (((SWBB_BIT_WIDTH * 3) + (SWBB_BIT_SPACER * 3)) - SWBB_ACCEPTANCE)
         ) return SWBB_FAIL;
-      }
-      // Receive incoming bytes
+      } // Receive one byte
       result = receive_byte();
       if(result == SWBB_FAIL) return SWBB_FAIL;
-      *string = result;
+      *data = result;
       return 1;
     };
 
@@ -193,10 +206,7 @@ class SoftwareBitBang {
     detected at byte level. */
 
     void send_byte(uint8_t b) {
-      PJON_IO_WRITE(_output_pin, HIGH);
-      PJON_DELAY_MICROSECONDS(SWBB_BIT_SPACER);
-      PJON_IO_WRITE(_output_pin, LOW);
-      PJON_DELAY_MICROSECONDS(SWBB_BIT_WIDTH);
+      pulse(1);
       for(uint8_t mask = 0x01; mask; mask <<= 1) {
         PJON_IO_WRITE(_output_pin, b & mask);
         PJON_DELAY_MICROSECONDS(SWBB_BIT_WIDTH);
@@ -221,14 +231,15 @@ class SoftwareBitBang {
       while( // If high Wait for low
         ((uint32_t)(PJON_MICROS() - time) < (SWBB_BIT_WIDTH / 4)) &&
         PJON_IO_READ(_input_pin)
-      );
+      ); // Transmit response prepended with a synchronization pad
       PJON_IO_MODE(_output_pin, OUTPUT);
+      pulse(1);
       send_byte(response);
       PJON_IO_PULL_DOWN(_output_pin);
     };
 
 
-    /* The string is prepended with a frame initializer composed by 3
+    /* The data is prepended with a frame initializer composed by 3
        synchronization pads to signal the start of a frame.
      _________________ __________________________________
     |   FRAME INIT    | DATA 1-65535 bytes               |
@@ -239,19 +250,14 @@ class SoftwareBitBang {
     | 1 |0| 1 |0| 1 |0| 1 |0|0000|11|00| 1 |0|00000|1|0|1|
     |___|_|___|_|___|_|___|_|____|__|__|___|_|_____|_|_|_|
 
-    Send a string: */
+    Send a frame: */
 
-    void send_string(uint8_t *string, uint16_t length) {
+    void send_frame(uint8_t *data, uint16_t length) {
+      _timeout = (length * SWBB_RESPONSE_OFFSET) + SWBB_LATENCY;
       PJON_IO_MODE(_output_pin, OUTPUT);
-      // Send frame initializer
-      for(uint8_t i = 0; i < 3; i++) {
-        PJON_IO_WRITE(_output_pin, HIGH);
-        PJON_DELAY_MICROSECONDS(SWBB_BIT_SPACER);
-        PJON_IO_WRITE(_output_pin, LOW);
-        PJON_DELAY_MICROSECONDS(SWBB_BIT_WIDTH);
-      } // Send data
+      pulse(3); // Send frame initializer
       for(uint16_t b = 0; b < length; b++)
-        send_byte(string[b]);
+        send_byte(data[b]); // Send each byte
       PJON_IO_PULL_DOWN(_output_pin);
     };
 
@@ -273,14 +279,14 @@ class SoftwareBitBang {
     not, interference, synchronization loss or simply absence of
     communication is detected at byte level: */
 
-    bool sync() {
+    bool sync(uint32_t spacer) {
       PJON_IO_PULL_DOWN(_input_pin);
       if((_output_pin != _input_pin) && (_output_pin != SWBB_NOT_ASSIGNED))
         PJON_IO_PULL_DOWN(_output_pin);
       uint32_t time = PJON_MICROS();
       while(
         PJON_IO_READ(_input_pin) &&
-        ((uint32_t)(PJON_MICROS() - time) <= SWBB_BIT_SPACER)
+        ((uint32_t)(PJON_MICROS() - time) <= spacer)
       );
       time = PJON_MICROS() - time;
       if(time < SWBB_ACCEPTANCE)
@@ -295,6 +301,34 @@ class SoftwareBitBang {
       return false;
     };
 
+    bool sync() {
+      return sync(SWBB_BIT_SPACER);
+    }
+
+    bool sync_preamble() {
+      return sync(SWBB_BIT_SPACER * SWBB_MAX_PREAMBLE);
+    };
+
+    /* Emit synchronization pulse: */
+
+    void pulse(uint8_t n) {
+      #if SWBB_PREAMBLE != 1
+      if (n == 3) {
+        // Transmit preamble
+        PJON_IO_WRITE(_output_pin, HIGH);
+        PJON_DELAY_MICROSECONDS(SWBB_BIT_SPACER * SWBB_PREAMBLE);
+        PJON_IO_WRITE(_output_pin, LOW);
+        PJON_DELAY_MICROSECONDS(SWBB_BIT_WIDTH);
+        n--;
+      }
+      #endif
+      while(n--) {
+        PJON_IO_WRITE(_output_pin, HIGH);
+        PJON_DELAY_MICROSECONDS(SWBB_BIT_SPACER);
+        PJON_IO_WRITE(_output_pin, LOW);
+        PJON_DELAY_MICROSECONDS(SWBB_BIT_WIDTH);
+      }
+    };
 
     /* Set the communicaton pin: */
 
@@ -318,6 +352,7 @@ class SoftwareBitBang {
     };
 
   private:
-    uint8_t _input_pin;
-    uint8_t _output_pin;
+    uint16_t _timeout;
+    uint8_t  _input_pin;
+    uint8_t  _output_pin;
 };

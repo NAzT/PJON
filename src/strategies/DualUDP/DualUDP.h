@@ -46,7 +46,24 @@
 
 // Timeout waiting for an ACK. This can be increased if the latency is high
 #ifndef DUDP_RESPONSE_TIMEOUT
-  #define DUDP_RESPONSE_TIMEOUT          10000ul
+  #define DUDP_RESPONSE_TIMEOUT          50000ul
+#endif
+
+// Minimum time interval in ms between send attempts. Some devices go into 
+// contention if sending too fast. This can be overridden in an interface
+// for a device type, or in user sketches.
+#ifndef DUDP_MINIMUM_SEND_INTERVAL_MS 
+  #define DUDP_MINIMUM_SEND_INTERVAL_MS  8
+#endif
+
+// Backoff function that can be overridden depending on network and devices
+#ifndef DUDP_BACKOFF
+  #define DUDP_BACKOFF(attempts) (1000ul * attempts + PJON_RANDOM(500))
+#endif
+
+// Max number of retries
+#ifndef DUDP_MAX_RETRIES
+  #define DUDP_MAX_RETRIES 5
 #endif
 
 // The size of the node table
@@ -62,6 +79,11 @@
 #define DUDP_DEFAULT_PORT                   7500
 #define DUDP_MAGIC_HEADER  (uint32_t) 0x0EFA23FF
 
+// Recommended receive time for this strategy, in microseconds
+#ifndef DUDP_RECEIVE_TIME
+  #define DUDP_RECEIVE_TIME 0
+#endif
+
 //#define DUDP_DEBUG_PRINT
 
 class DualUDP {
@@ -76,6 +98,7 @@ class DualUDP {
     // Remember the details of the last outgoing packet
     uint8_t          _last_out_receiver_id = 0;
     uint8_t          _last_out_sender_id = 0;
+    uint32_t         _last_out_time = 0;
 
     // Remember the details of the last incoming packet
     PJON_Packet_Info _packet_info; // Also used for last outgoing
@@ -204,44 +227,52 @@ public:
     /* Returns the suggested delay related to attempts passed as parameter: */
 
     uint32_t back_off(uint8_t attempts) {
-      return 1000ul * attempts + PJON_RANDOM(10000);
+      return DUDP_BACKOFF(attempts);
     };
 
-    /* Begin method, to be called before transmission or reception:
+    /* Begin method, to be called on initialization:
        (returns always true) */
 
     bool begin(uint8_t device_id) {
+      (void)device_id; // Avoid "unused parameter" warning
       return check_udp();
     };
 
     /* Check if the channel is free for transmission */
 
-    bool can_start() { return check_udp(); };
+    bool can_start() {
+      return check_udp() && ((uint32_t)(PJON_MILLIS() - _last_out_time) >=
+        DUDP_MINIMUM_SEND_INTERVAL_MS);
+    };
 
     /* Returns the maximum number of attempts for each transmission: */
 
-    static uint8_t get_max_attempts() { return 5; };
+    static uint8_t get_max_attempts() { return DUDP_MAX_RETRIES; };
+
+    /* Returns the recommended receive time for this strategy: */
+
+    static uint16_t get_receive_time() { return DUDP_RECEIVE_TIME; };
 
     /* Handle a collision (empty because handled on Ethernet level): */
 
     void handle_collision() { };
 
-    /* Receive a string: */
+    /* Receive a frame: */
 
-    uint16_t receive_string(uint8_t *string, uint16_t max_length) {
-      uint16_t length = udp.receive_string(string, max_length);
+    uint16_t receive_frame(uint8_t *data, uint16_t max_length) {
+      uint16_t length = udp.receive_frame(data, max_length);
       // Then get the IP address and port number of the sender
       udp.get_sender( _last_in_sender_ip,  _last_in_sender_port);
       if(length != PJON_FAIL && length > 4) {
         // Extract some info from the header
-        PJONTools::parse_header(string, _packet_info);
-         _last_in_receiver_id = _packet_info.receiver_id;
-         _last_in_sender_id = _packet_info.sender_id;
+        PJONTools::parse_header(data, _packet_info);
+         _last_in_receiver_id = _packet_info.rx.id;
+         _last_in_sender_id = _packet_info.tx.id;
         // Autoregister sender if the packet was sent directly
         if(
-          _packet_info.sender_id != PJON_NOT_ASSIGNED &&
+          _packet_info.tx.id != PJON_NOT_ASSIGNED &&
           _last_out_sender_id != PJON_NOT_ASSIGNED &&
-          _packet_info.receiver_id == _last_out_sender_id
+          _packet_info.rx.id == _last_out_sender_id
         ) autoregister_sender();
       }
       return length;
@@ -254,7 +285,7 @@ public:
       uint8_t result[10];
       uint16_t reply_length = 0;
       do {
-        reply_length = receive_string(result, sizeof result);
+        reply_length = receive_frame(result, sizeof result);
         if(reply_length == PJON_FAIL) continue;
 
         // Ignore full PJON packets, we expect only a tiny response packet
@@ -274,7 +305,6 @@ public:
         // and a delayed ACK is still a confirmation of the correct route.
         //if(_last_in_sender_id != _last_out_receiver_id) continue;
 
-        // We expect 1, if packet is larger it is not our ACK
         if(code == PJON_ACK) {
           // Autoregister sender of ACK
           int16_t pos = autoregister_sender();
@@ -302,15 +332,15 @@ public:
       udp.send_response(buf, 3);
     };
 
-    /* Send a string: */
+    /* Send a frame: */
 
-    void send_string(uint8_t *string, uint16_t length) {
+    void send_frame(uint8_t *data, uint16_t length) {
       _did_broadcast = false;
       if(length > 4) {
         // Extract some info from the header
-        PJONTools::parse_header(string, _packet_info);
-         _last_out_receiver_id = _packet_info.receiver_id;
-         _last_out_sender_id = _packet_info.sender_id;
+        PJONTools::parse_header(data, _packet_info);
+         _last_out_receiver_id = _packet_info.rx.id;
+         _last_out_sender_id = _packet_info.tx.id;
 
         // Locate receiver in table unless it is a PJON broadcast (receiver 0)
         int16_t pos = -1;
@@ -325,16 +355,17 @@ public:
         ) pos = -1;
 
         if(pos == -1) { // UDP Broadcast, send to all receivers
-          if(_auto_discovery) udp.send_string(string, length);
+          if(_auto_discovery) udp.send_frame(data, length);
           _did_broadcast = true;
           #ifdef DUDP_DEBUG_PRINT
             Serial.print("Broadcast, id ");
             Serial.println(_last_out_receiver_id);
           #endif
         } else { // To a specific IP+port
-          udp.send_string(string, length, _remote_ip[pos], _remote_port[pos]);
+          udp.send_frame(data, length, _remote_ip[pos], _remote_port[pos]);
           _send_attempts[pos]++;
         }
+        _last_out_time = PJON_MILLIS();
       }
     };
 
